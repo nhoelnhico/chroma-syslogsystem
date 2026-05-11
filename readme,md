@@ -1,0 +1,29 @@
+chroma-syslogsystem/
+├── index.php
+├── dashboard.php
+├── upload.php
+├── settings.php
+├── logout.php
+├── includes/
+│   ├── db.php
+│   ├── sidebar.php
+├── database.sql
+└── README.md
+
+
+# Chroma Syslog Monitoring System
+
+A native PHP and Tailwind CSS web application built to monitor, parse, and analyze Ruijie Network Syslog `.txt` files. 
+
+## Features
+- **Secure Authentication**: Default login is `admin` / `admin123`.
+- **Log Parsing Engine**: Automatically strips artifacts and extracts Date, Module, Severity, Event Type, and Message from Ruijie logs.
+- **Analytics Dashboard**: Visualizes top network events (e.g., ARP duplication floods) using Chart.js.
+- **Responsive UI**: Fully mobile-friendly design utilizing Tailwind CSS.
+- **User Management**: Add, update, and delete admin users.
+
+## Setup Instructions (XAMPP)
+1. Clone or place this folder (`chroma-syslogsystem`) inside your `C:\xampp\htdocs\` directory.
+2. Open phpMyAdmin (`http://localhost/phpmyadmin`) and import `database.sql`.
+3. Update `includes/db.php` if your local MySQL uses a password.
+4. Access the system at `http://localhost/chroma-syslogsystem`.
