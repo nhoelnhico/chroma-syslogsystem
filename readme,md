@@ -11,19 +11,39 @@ chroma-syslogsystem/
 └── README.md
 
 
-# Chroma Syslog Monitoring System
+# Chroma IT - Syslog Security Monitoring System
 
-A native PHP and Tailwind CSS web application built to monitor, parse, and analyze Ruijie Network Syslog `.txt` files. 
+A native PHP and Tailwind CSS web application built to monitor, parse, and analyze Ruijie Network Syslog `.txt` files in a professional Glassmorphism interface.
 
-## Features
+## Core Features
 - **Secure Authentication**: Default login is `admin` / `admin123`.
 - **Log Parsing Engine**: Automatically strips artifacts and extracts Date, Module, Severity, Event Type, and Message from Ruijie logs.
-- **Analytics Dashboard**: Visualizes top network events (e.g., ARP duplication floods) using Chart.js.
+- **File Management**: Upload `.txt` files via drag-and-drop, track total logs parsed, and cleanly delete files and their associated database records.
+- **Graphical Analytics**: Chart.js integration for visual reporting on threat distributions and top network modules.
 - **Responsive UI**: Fully mobile-friendly design utilizing Tailwind CSS.
-- **User Management**: Add, update, and delete admin users.
+
+---
+
+## Understanding Dashboard Metrics
+
+### 🛡️ Mitigation Rate
+The Mitigation Rate is a percentage that shows how actively your system is defending itself compared to the total volume of traffic logs. 
+* **Calculation:** `(Threats Successfully Defended ÷ Total System Events) × 100`
+* **How it triggers:** The system counts an event as "Defended" if the Ruijie log module reads `NETDEFEND` (indicating an active firewall block) or if the event type is `DUPADDR` (indicating the system caught an ARP flood/spoofing conflict).
+
+### 🔍 Threat Intelligence Report
+Ruijie raw logs are difficult to interpret quickly. The Threat Intelligence engine scans the `Module` and `Event Type` of every single log and categorizes them into actionable security buckets:
+* **VPN PEER:** Captures `IPSEC`, `VPDN`, and `PPP` events. High numbers here usually indicate brute-force attempts on your VPN gateways.
+* **SNMP LOGIN:** Captures `SNMP` polling attempts. 
+* **HIGH UTILIZATION:** Captures `CPU` spikes or memory warnings, which can be early indicators of a DDoS attack or failing hardware.
+* **PORT SCAN / FLOOD:** Captures `NETDEFEND` firewall triggers and `FLOOD` attacks attempting to map or overwhelm your network.
+* **OTHER ANOMALIES:** A catch-all safety net. Any log with a high severity (Level 0 to 4) that does *not* match the specific rules above is dumped here. This ensures new or unknown attacks don't slip past your radar.
+
+---
 
 ## Setup Instructions (XAMPP)
 1. Clone or place this folder (`chroma-syslogsystem`) inside your `C:\xampp\htdocs\` directory.
-2. Open phpMyAdmin (`http://localhost/phpmyadmin`) and import `database.sql`.
-3. Update `includes/db.php` if your local MySQL uses a password.
-4. Access the system at `http://localhost/chroma-syslogsystem`.
+2. Ensure you have a folder named `uploads/` inside the root directory (it will be created automatically upon first upload).
+3. Open phpMyAdmin (`http://localhost/phpmyadmin`) and import `database.sql`.
+4. Update `includes/db.php` if your local MySQL uses a password (default XAMPP has no password).
+5. Access the system at `http://localhost/chroma-syslogsystem`.
