@@ -1,6 +1,6 @@
 <aside class="w-64 bg-white/5 backdrop-blur-xl border-r border-white/10 text-slate-200 min-h-screen flex flex-col transition-all duration-300 md:relative absolute z-50 hidden md:flex shadow-[4px_0_24px_rgba(0,0,0,0.2)]" id="sidebar">
     <div class="p-6 text-2xl font-bold tracking-widest border-b border-white/10 bg-black/20">
-        <span class="text-blue-400 drop-shadow-md">CHROMA</span> IT
+        <span class="text-blue-400 drop-shadow-md">CHROMA</span> IT DEPARTMENT
     </div>
     <nav class="flex-1 px-4 py-6 space-y-3">
         <a href="dashboard.php" class="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/10 hover:shadow-lg transition-all font-medium text-sm">
