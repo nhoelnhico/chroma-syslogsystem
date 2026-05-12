@@ -63,7 +63,7 @@ foreach ($branchData as $b) {
     $branchCounts[] = $b['count']; 
 }
 
-// --- 4. THREAT CATEGORIZATION ---
+// --- 4. THREAT CATEGORIZATION (Strict Ruijie Rules synchronized with Dashboard) ---
 $attackStats = [
     'VPN PEER' => 0, 
     'SNMP LOGIN' => 0, 
@@ -92,7 +92,7 @@ foreach ($threats as $t) {
     } elseif (strpos($mod, 'NETDEFEND') !== false || strpos($evt, 'FLOOD') !== false) {
         $attackStats['PORT SCAN / FLOOD'] += $count;
     } elseif ($mod === 'ARP' || strpos($evt, 'DUPADDR') !== false || strpos($evt, 'CONFLICT') !== false) {
-        $attackStats['ARP CONFLICT'] += $count; 
+        $attackStats['ARP CONFLICT'] += $count; // Accurately catches ARPCHANGEMAC, STATICARPOVR, DUPADDR, PING_CONFLICT
     } elseif ($severity <= 4) {
         $attackStats['OTHER ANOMALIES'] += $count;
     }
@@ -233,7 +233,7 @@ $branches = $pdo->query("SELECT * FROM branches ORDER BY name ASC")->fetchAll(PD
             delay: (ctx) => (ctx.type === 'data' && !ctx.chart._delayInit) ? ctx.dataIndex * 100 + ctx.datasetIndex * 100 : 0 
         };
 
-        // 1. Threat Doughnut Chart
+        // 1. Threat Doughnut Chart (6 colors configured)
         <?php if (array_sum($threatCounts) > 0): ?>
         new Chart(document.getElementById('threatChart'), { 
             type: 'doughnut', 
