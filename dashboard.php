@@ -40,7 +40,7 @@ if ($activeCategory === 'VPN_PEER') {
 } elseif ($activeCategory === 'ARP_SPOOF_CONFLICT') {
     $catSql = " (module = 'ARP' OR event_type LIKE '%DUPADDR%' OR event_type LIKE '%CONFLICT%') "; 
 } elseif ($activeCategory === 'DEFENDED') {
-    $catSql = " (module = 'NETDEFEND' OR module = 'ARP' OR event_type LIKE '%DUPADDR%' OR event_type LIKE '%CONFLICT%') ";
+    $catSql = " (module = 'NETDEFEND' OR module = 'ARP' OR event_type LIKE '%DUPADDR%' OR event_type LIKE '%CONFLICT%' OR ((module LIKE '%IPSEC%' OR module LIKE '%VPDN%' OR module LIKE '%PPP%') AND (event_type LIKE '%FAIL%' OR event_type LIKE '%DROP%' OR event_type LIKE '%ERROR%' OR LOWER(message) LIKE '%fail%'))) ";
 } elseif ($activeCategory === 'OTHER_ANOMALIES') {
     $catSql = " severity <= 4 AND NOT (module LIKE '%IPSEC%' OR module LIKE '%VPDN%' OR module LIKE '%PPP%' OR module LIKE '%SNMP%' OR event_type LIKE '%UTILIZATION%' OR event_type LIKE '%HIGH%' OR module LIKE '%CPU%' OR module = 'DEV_AUDIT' OR module LIKE '%NETDEFEND%' OR event_type LIKE '%FLOOD%' OR module = 'ARP' OR event_type LIKE '%DUPADDR%' OR event_type LIKE '%CONFLICT%') ";
 }
@@ -56,7 +56,7 @@ $totalLogsStmt = $pdo->prepare("SELECT COUNT(*) FROM syslogs" . $baseWhereSql);
 $totalLogsStmt->execute($params);
 $totalLogs = $totalLogsStmt->fetchColumn();
 
-$defendedQuery = "SELECT COUNT(*) FROM syslogs " . (empty($baseWhereSql) ? "WHERE" : $baseWhereSql . " AND ") . " (module = 'NETDEFEND' OR module = 'ARP' OR event_type LIKE '%DUPADDR%' OR event_type LIKE '%CONFLICT%')";
+$defendedQuery = "SELECT COUNT(*) FROM syslogs " . (empty($baseWhereSql) ? "WHERE" : $baseWhereSql . " AND ") . " (module = 'NETDEFEND' OR module = 'ARP' OR event_type LIKE '%DUPADDR%' OR event_type LIKE '%CONFLICT%' OR ((module LIKE '%IPSEC%' OR module LIKE '%VPDN%' OR module LIKE '%PPP%') AND (event_type LIKE '%FAIL%' OR event_type LIKE '%DROP%' OR event_type LIKE '%ERROR%' OR LOWER(message) LIKE '%fail%')))";
 $defendedStmt = $pdo->prepare($defendedQuery);
 $defendedStmt->execute($params);
 $threatsDefended = $defendedStmt->fetchColumn();
@@ -188,7 +188,7 @@ function buildUrl($updates) { return '?' . http_build_query(array_merge($_GET, $
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
                 <?php 
                 $cards = [
-                    ['id' => 'VPN_PEER', 'color' => 'orange', 'label' => 'VPN PEER', 'desc' => 'External brute-force attempts on VPN gateways (IPSec/PPP).'], 
+                    ['id' => 'VPN_PEER', 'color' => 'orange', 'label' => 'VPN PEER', 'desc' => 'External attempts on VPN gateways. Failed logins count as defended.'], 
                     ['id' => 'SNMP_LOGIN', 'color' => 'yellow', 'label' => 'SNMP LOGIN', 'desc' => 'Unauthorized network polling and SNMP discovery probes.'], 
                     ['id' => 'HIGH_UTILIZATION', 'color' => 'purple', 'label' => 'HIGH UTILIZATION', 'desc' => 'CPU or memory spikes indicating stress or potential DDoS.'], 
                     ['id' => 'PORT_SCAN_FLOOD', 'color' => 'red', 'label' => 'PORT SCAN / FLOOD', 'desc' => 'External firewall (NETDEFEND) blocks against port scanning.'], 
@@ -220,6 +220,7 @@ function buildUrl($updates) { return '?' . http_build_query(array_merge($_GET, $
                 <div class="p-4 glass-header flex flex-wrap justify-between items-center gap-4 border-b border-white/10">
                     <div>
                         <h2 class="text-lg font-bold text-white">Network Events Log</h2>
+                        <p class="text-xs text-slate-400 mt-1">Click on any row to view full raw log details.</p>
                     </div>
                     
                     <form method="GET" id="limitForm" class="flex items-center gap-2">
@@ -254,17 +255,47 @@ function buildUrl($updates) { return '?' . http_build_query(array_merge($_GET, $
                             </tr>
                         </thead>
                         <tbody class="text-sm divide-y divide-white/5" id="eventsBody">
-                            <?php foreach($recentLogs as $log): ?>
-                            <tr class="hover:bg-white/5 transition log-row">
-                                <td class="p-4 text-slate-300 whitespace-nowrap"><?= htmlspecialchars($log['log_date']) ?></td>
+                            <?php foreach($recentLogs as $log): 
+                                
+                                // Determine if this specific log is classified as Defended
+                                $m = strtoupper($log['module']);
+                                $e = strtoupper($log['event_type']);
+                                $msg = strtolower($log['message']);
+                                $isDefended = false;
+                                
+                                if ($m === 'NETDEFEND' || $m === 'ARP' || strpos($e, 'DUPADDR') !== false || strpos($e, 'CONFLICT') !== false) {
+                                    $isDefended = true;
+                                } elseif (in_array($m, ['IPSEC', 'VPDN', 'PPP']) && (strpos($e, 'FAIL') !== false || strpos($e, 'DROP') !== false || strpos($e, 'ERROR') !== false || strpos($msg, 'fail') !== false)) {
+                                    $isDefended = true;
+                                }
+                            ?>
+                            
+                            <tr class="hover:bg-white/10 transition log-row cursor-pointer group"
+                                data-date="<?= htmlspecialchars($log['log_date']) ?>"
+                                data-module="<?= htmlspecialchars($log['module']) ?>"
+                                data-severity="<?= htmlspecialchars($log['severity']) ?>"
+                                data-event="<?= htmlspecialchars($log['event_type']) ?>"
+                                data-message="<?= htmlspecialchars($log['message']) ?>"
+                                data-raw="<?= htmlspecialchars($log['raw_log']) ?>"
+                                data-defended="<?= $isDefended ? 'true' : 'false' ?>"
+                                onclick="openLogModal(this)">
+                                
+                                <td class="p-4 text-slate-300 whitespace-nowrap group-hover:text-white"><?= htmlspecialchars($log['log_date']) ?></td>
                                 <td class="p-4 font-semibold text-blue-400"><?= htmlspecialchars($log['module']) ?></td>
                                 <td class="p-4 whitespace-nowrap">
                                     <span class="px-2 py-1 rounded-md text-xs font-bold border <?= $log['severity'] <= 4 ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' ?>">
                                         Lvl <?= htmlspecialchars($log['severity']) ?>
                                     </span>
                                 </td>
-                                <td class="p-4 font-medium text-slate-200"><?= htmlspecialchars($log['event_type']) ?></td>
-                                <td class="p-4 text-slate-400 truncate max-w-lg hover:whitespace-normal transition-all cursor-default">
+                                <td class="p-4 font-medium text-slate-200 group-hover:text-white flex items-center gap-2">
+                                    <span class="truncate max-w-[150px] sm:max-w-none" title="<?= htmlspecialchars($log['event_type']) ?>"><?= htmlspecialchars($log['event_type']) ?></span>
+                                    <?php if($isDefended): ?>
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 whitespace-nowrap" title="Successfully Defended or Mitigated">
+                                            🛡️ DEFENDED
+                                        </span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="p-4 text-slate-400 truncate max-w-xs md:max-w-md transition-all group-hover:text-blue-300">
                                     <?= htmlspecialchars($log['message']) ?>
                                 </td>
                             </tr>
@@ -282,7 +313,127 @@ function buildUrl($updates) { return '?' . http_build_query(array_merge($_GET, $
         </div>
     </main>
 
+    <div id="logModal" class="fixed inset-0 z-[100] hidden items-center justify-center bg-black/70 backdrop-blur-sm p-4 opacity-0 transition-opacity duration-300">
+        <div class="glass w-full max-w-3xl rounded-2xl shadow-2xl border-t-4 border-t-blue-500 relative transform scale-95 transition-transform duration-300 flex flex-col max-h-[90vh]" id="logModalContent">
+            
+            <button onclick="closeLogModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 p-2 rounded-full transition z-10">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+
+            <div class="p-6 md:p-8 overflow-y-auto">
+                <div class="flex items-center gap-3 mb-6">
+                    <span class="bg-blue-500/20 p-2 rounded-lg border border-blue-500/30">
+                        <svg class="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    </span>
+                    <h2 class="text-2xl font-bold text-white flex-1">Detailed Log Inspector</h2>
+                    
+                    <div id="modalDefendedBadge" class="hidden items-center px-3 py-1 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold text-sm shadow-[0_0_10px_rgba(52,211,153,0.3)]">
+                        🛡️ SYSTEM DEFENDED
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-black/20 p-4 rounded-xl border border-white/5 flex flex-col justify-center">
+                        <span class="block text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Timestamp</span>
+                        <span id="modalDate" class="text-slate-200 font-medium text-sm"></span>
+                    </div>
+                    <div class="bg-black/20 p-4 rounded-xl border border-white/5 flex flex-col justify-center">
+                        <span class="block text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Severity</span>
+                        <span id="modalSeverity" class="font-bold text-sm"></span>
+                    </div>
+                    <div class="bg-black/20 p-4 rounded-xl border border-white/5 flex flex-col justify-center overflow-hidden">
+                        <span class="block text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Module</span>
+                        <span id="modalModule" class="text-blue-400 font-bold text-sm truncate"></span>
+                    </div>
+                    <div class="bg-black/20 p-4 rounded-xl border border-white/5 flex flex-col justify-center">
+                        <span class="block text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Event Action</span>
+                        <span id="modalEvent" class="text-slate-200 font-medium text-sm break-all md:break-words line-clamp-2" title=""></span>
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <span class="block text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-2">Parsed Event Description</span>
+                    <div id="modalMessage" class="bg-blue-900/20 p-5 rounded-xl border border-blue-500/20 text-slate-200 text-sm break-words leading-relaxed"></div>
+                </div>
+
+                <div>
+                    <span class="block text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-2 flex items-center gap-2">
+                        Raw Syslog Output 
+                        <span class="bg-slate-700 text-slate-300 text-[9px] px-2 py-0.5 rounded">TERMINAL</span>
+                    </span>
+                    <div id="modalRaw" class="bg-[#0f172a] p-4 rounded-xl border border-slate-700 text-emerald-400 font-mono text-xs overflow-x-auto whitespace-pre-wrap shadow-inner leading-relaxed max-h-48 overflow-y-auto"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
+        // Modal Logic
+        function openLogModal(row) {
+            document.getElementById('modalDate').innerText = row.getAttribute('data-date');
+            document.getElementById('modalModule').innerText = row.getAttribute('data-module');
+            
+            const eventText = row.getAttribute('data-event');
+            const eventEl = document.getElementById('modalEvent');
+            eventEl.innerText = eventText;
+            eventEl.title = eventText; // For hover on long text
+            
+            document.getElementById('modalMessage').innerText = row.getAttribute('data-message');
+            document.getElementById('modalRaw').innerText = row.getAttribute('data-raw');
+
+            // Severity Coloring
+            const sev = parseInt(row.getAttribute('data-severity'));
+            const sevEl = document.getElementById('modalSeverity');
+            sevEl.innerText = 'Level ' + sev;
+            sevEl.className = sev <= 4 ? 'text-red-400 font-bold text-sm' : 'text-emerald-400 font-bold text-sm';
+
+            // Defended Badge logic
+            const isDefended = row.getAttribute('data-defended') === 'true';
+            const badgeEl = document.getElementById('modalDefendedBadge');
+            if (isDefended) {
+                badgeEl.classList.remove('hidden');
+                badgeEl.classList.add('flex');
+            } else {
+                badgeEl.classList.add('hidden');
+                badgeEl.classList.remove('flex');
+            }
+
+            const modal = document.getElementById('logModal');
+            const content = document.getElementById('logModalContent');
+            
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            
+            // Trigger animation
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                content.classList.remove('scale-95');
+                content.classList.add('scale-100');
+            }, 10);
+        }
+
+        function closeLogModal() {
+            const modal = document.getElementById('logModal');
+            const content = document.getElementById('logModalContent');
+            
+            modal.classList.add('opacity-0');
+            content.classList.remove('scale-100');
+            content.classList.add('scale-95');
+            
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }, 300);
+        }
+
+        // Close modal on escape key or clicking outside
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeLogModal();
+        });
+        document.getElementById('logModal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('logModal')) closeLogModal();
+        });
+
         // Front-end Table Sorting Logic
         let sortDirections = [true, true, true, true]; 
         
@@ -295,6 +446,7 @@ function buildUrl($updates) { return '?' . http_build_query(array_merge($_GET, $
                 let cellA = a.cells[col].innerText.trim();
                 let cellB = b.cells[col].innerText.trim();
                 
+                // If sorting severity, strip the text to compare the integer values
                 if (col === 2) { 
                     cellA = parseInt(cellA.replace(/\D/g, '')) || 0; 
                     cellB = parseInt(cellB.replace(/\D/g, '')) || 0; 
