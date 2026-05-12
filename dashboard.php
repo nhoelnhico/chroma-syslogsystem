@@ -27,22 +27,22 @@ if (!empty($selectedBranch)) {
 
 $baseWhereSql = count($filterConditions) > 0 ? " WHERE " . implode(" AND ", $filterConditions) : "";
 
-// --- CATEGORY SQL MAP (Corrected for ARP/DUPADDR) ---
+// --- STRICT CATEGORY SQL MAP ---
 $catSql = "";
 if ($activeCategory === 'VPN_PEER') {
     $catSql = " (module LIKE '%IPSEC%' OR module LIKE '%VPDN%' OR module LIKE '%PPP%') ";
 } elseif ($activeCategory === 'SNMP_LOGIN') {
     $catSql = " module LIKE '%SNMP%' ";
 } elseif ($activeCategory === 'HIGH_UTILIZATION') {
-    $catSql = " (event_type LIKE '%UTILIZATION%' OR event_type LIKE '%HIGH%' OR module LIKE '%CPU%') ";
+    $catSql = " (event_type LIKE '%UTILIZATION%' OR event_type LIKE '%HIGH%' OR module LIKE '%CPU%' OR module = 'DEV_AUDIT') ";
 } elseif ($activeCategory === 'PORT_SCAN_FLOOD') {
-    $catSql = " (module LIKE '%NETDEFEND%' OR event_type LIKE '%FLOOD%') "; // Removed DUPADDR
+    $catSql = " (module LIKE '%NETDEFEND%' OR event_type LIKE '%FLOOD%') "; 
 } elseif ($activeCategory === 'ARP_SPOOF_CONFLICT') {
-    $catSql = " (event_type LIKE '%DUPADDR%' OR module = 'ARP') "; // NEW CATEGORY LOGIC
+    $catSql = " (module = 'ARP' OR event_type LIKE '%DUPADDR%' OR event_type LIKE '%CONFLICT%') "; 
 } elseif ($activeCategory === 'DEFENDED') {
-    $catSql = " (module = 'NETDEFEND' OR event_type LIKE '%DUPADDR%') ";
+    $catSql = " (module = 'NETDEFEND' OR module = 'ARP' OR event_type LIKE '%DUPADDR%' OR event_type LIKE '%CONFLICT%') ";
 } elseif ($activeCategory === 'OTHER_ANOMALIES') {
-    $catSql = " severity <= 4 AND NOT (module LIKE '%IPSEC%' OR module LIKE '%VPDN%' OR module LIKE '%PPP%' OR module LIKE '%SNMP%' OR event_type LIKE '%UTILIZATION%' OR event_type LIKE '%HIGH%' OR module LIKE '%CPU%' OR module LIKE '%NETDEFEND%' OR event_type LIKE '%FLOOD%' OR event_type LIKE '%DUPADDR%' OR module = 'ARP') ";
+    $catSql = " severity <= 4 AND NOT (module LIKE '%IPSEC%' OR module LIKE '%VPDN%' OR module LIKE '%PPP%' OR module LIKE '%SNMP%' OR event_type LIKE '%UTILIZATION%' OR event_type LIKE '%HIGH%' OR module LIKE '%CPU%' OR module = 'DEV_AUDIT' OR module LIKE '%NETDEFEND%' OR event_type LIKE '%FLOOD%' OR module = 'ARP' OR event_type LIKE '%DUPADDR%' OR event_type LIKE '%CONFLICT%') ";
 }
 
 $tableWhereSql = $baseWhereSql;
@@ -56,8 +56,7 @@ $totalLogsStmt = $pdo->prepare("SELECT COUNT(*) FROM syslogs" . $baseWhereSql);
 $totalLogsStmt->execute($params);
 $totalLogs = $totalLogsStmt->fetchColumn();
 
-// Defended includes NETDEFEND blocks and ARP spoof/conflict catches
-$defendedQuery = "SELECT COUNT(*) FROM syslogs " . (empty($baseWhereSql) ? "WHERE" : $baseWhereSql . " AND ") . " (module = 'NETDEFEND' OR event_type LIKE '%DUPADDR%')";
+$defendedQuery = "SELECT COUNT(*) FROM syslogs " . (empty($baseWhereSql) ? "WHERE" : $baseWhereSql . " AND ") . " (module = 'NETDEFEND' OR module = 'ARP' OR event_type LIKE '%DUPADDR%' OR event_type LIKE '%CONFLICT%')";
 $defendedStmt = $pdo->prepare($defendedQuery);
 $defendedStmt->execute($params);
 $threatsDefended = $defendedStmt->fetchColumn();
@@ -87,12 +86,12 @@ foreach ($threats as $t) {
         $attackStats['VPN_PEER'] += $count;
     } elseif (strpos($mod, 'SNMP') !== false) {
         $attackStats['SNMP_LOGIN'] += $count;
-    } elseif (strpos($evt, 'UTILIZATION') !== false || strpos($evt, 'HIGH') !== false || strpos($mod, 'CPU') !== false) {
+    } elseif (strpos($evt, 'UTILIZATION') !== false || strpos($evt, 'HIGH') !== false || strpos($mod, 'CPU') !== false || $mod === 'DEV_AUDIT') {
         $attackStats['HIGH_UTILIZATION'] += $count;
     } elseif (strpos($mod, 'NETDEFEND') !== false || strpos($evt, 'FLOOD') !== false) {
         $attackStats['PORT_SCAN_FLOOD'] += $count;
-    } elseif (strpos($evt, 'DUPADDR') !== false || $mod === 'ARP') {
-        $attackStats['ARP_SPOOF_CONFLICT'] += $count; // Accurately catches Duplicate IP issues
+    } elseif ($mod === 'ARP' || strpos($evt, 'DUPADDR') !== false || strpos($evt, 'CONFLICT') !== false) {
+        $attackStats['ARP_SPOOF_CONFLICT'] += $count; 
     } elseif ($severity <= 4) {
         $attackStats['OTHER_ANOMALIES'] += $count;
     }
@@ -185,16 +184,16 @@ function buildUrl($updates) { return '?' . http_build_query(array_merge($_GET, $
                 </div>
             </div>
 
-            <h2 class="text-xl font-semibold text-slate-300 mb-4 uppercase tracking-widest text-sm">Threat Intelligence Report</h2>
-            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+            <h2 class="text-xl font-semibold text-slate-300 mb-4 uppercase tracking-widest text-sm">Threat Intelligence Report <span class="text-slate-500 lowercase normal-case text-xs ml-2">(Click to isolate)</span></h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
                 <?php 
                 $cards = [
-                    ['id' => 'VPN_PEER', 'color' => 'orange', 'label' => 'VPN PEER'], 
-                    ['id' => 'SNMP_LOGIN', 'color' => 'yellow', 'label' => 'SNMP LOGIN'], 
-                    ['id' => 'HIGH_UTILIZATION', 'color' => 'purple', 'label' => 'HIGH UTILIZATION'], 
-                    ['id' => 'PORT_SCAN_FLOOD', 'color' => 'red', 'label' => 'PORT SCAN / FLOOD'], 
-                    ['id' => 'ARP_SPOOF_CONFLICT', 'color' => 'emerald', 'label' => 'ARP CONFLICT'], // NEW
-                    ['id' => 'OTHER_ANOMALIES', 'color' => 'slate', 'label' => 'OTHER ANOMALIES']
+                    ['id' => 'VPN_PEER', 'color' => 'orange', 'label' => 'VPN PEER', 'desc' => 'External brute-force attempts on VPN gateways (IPSec/PPP).'], 
+                    ['id' => 'SNMP_LOGIN', 'color' => 'yellow', 'label' => 'SNMP LOGIN', 'desc' => 'Unauthorized network polling and SNMP discovery probes.'], 
+                    ['id' => 'HIGH_UTILIZATION', 'color' => 'purple', 'label' => 'HIGH UTILIZATION', 'desc' => 'CPU or memory spikes indicating stress or potential DDoS.'], 
+                    ['id' => 'PORT_SCAN_FLOOD', 'color' => 'red', 'label' => 'PORT SCAN / FLOOD', 'desc' => 'External firewall (NETDEFEND) blocks against port scanning.'], 
+                    ['id' => 'ARP_SPOOF_CONFLICT', 'color' => 'emerald', 'label' => 'ARP CONFLICT', 'desc' => 'Internal IP address duplications or ARP spoofing attacks.'],
+                    ['id' => 'OTHER_ANOMALIES', 'color' => 'slate', 'label' => 'OTHER ANOMALIES', 'desc' => 'Catch-all for high-severity unclassified system errors.']
                 ];
                 
                 foreach ($cards as $card): 
@@ -203,9 +202,16 @@ function buildUrl($updates) { return '?' . http_build_query(array_merge($_GET, $
                     $borderClass = $count > 0 ? "border-{$card['color']}-500/50" : "border-white/10";
                     $activeBg = ($activeCategory === $card['id']) ? "bg-white/10 ring-1 ring-{$card['color']}-500/50" : "";
                 ?>
-                <a href="<?= buildUrl(['category' => $card['id']]) ?>" class="block glass p-4 rounded-xl <?= $borderClass ?> <?= $activeBg ?> hover:bg-white/10 hover:-translate-y-1 transition-all group shadow-md">
-                    <h4 class="text-[11px] text-slate-400 uppercase font-bold mb-1 group-hover:text-white transition truncate" title="<?= $card['label'] ?>"><?= $card['label'] ?></h4>
-                    <p class="text-3xl font-black <?= $colorClass ?>"><?= number_format($count) ?></p>
+                <a href="<?= buildUrl(['category' => $card['id']]) ?>" class="block glass p-4 rounded-xl <?= $borderClass ?> <?= $activeBg ?> hover:bg-white/10 hover:-translate-y-1 transition-all group shadow-md flex flex-col justify-between h-full">
+                    <div>
+                        <h4 class="text-[11px] text-slate-400 uppercase font-bold mb-1 group-hover:text-white transition truncate" title="<?= $card['label'] ?>"><?= $card['label'] ?></h4>
+                        <p class="text-3xl font-black <?= $colorClass ?> mb-3"><?= number_format($count) ?></p>
+                    </div>
+                    <div class="mt-auto pt-3 border-t border-white/5">
+                        <p class="text-[10px] leading-snug text-slate-500 group-hover:text-slate-300 transition-colors">
+                            <?= $card['desc'] ?>
+                        </p>
+                    </div>
                 </a>
                 <?php endforeach; ?>
             </div>
@@ -289,14 +295,12 @@ function buildUrl($updates) { return '?' . http_build_query(array_merge($_GET, $
                 let cellA = a.cells[col].innerText.trim();
                 let cellB = b.cells[col].innerText.trim();
                 
-                // If sorting severity, strip the text to compare the integer values
                 if (col === 2) { 
                     cellA = parseInt(cellA.replace(/\D/g, '')) || 0; 
                     cellB = parseInt(cellB.replace(/\D/g, '')) || 0; 
                     return isAsc ? cellA - cellB : cellB - cellA; 
                 }
                 
-                // Otherwise do a standard alphabetical sort
                 return isAsc ? cellA.localeCompare(cellB) : cellB.localeCompare(cellA);
             });
             

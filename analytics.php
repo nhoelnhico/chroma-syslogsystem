@@ -45,7 +45,25 @@ foreach ($moduleData as $m) {
     $modCounts[] = $m['count']; 
 }
 
-// --- 3. THREAT CATEGORIZATION (Strict Ruijie Rules applied) ---
+// --- 3. BRANCH COMPARISON ---
+$branchStmt = $pdo->prepare("
+    SELECT COALESCE(b.name, 'Unassigned') as branch_name, COUNT(s.id) as count 
+    FROM syslogs s 
+    LEFT JOIN branches b ON s.branch_id = b.id 
+    " . $baseWhereSql . " 
+    GROUP BY s.branch_id 
+    ORDER BY count DESC 
+    LIMIT 10
+");
+$branchStmt->execute($params);
+$branchData = $branchStmt->fetchAll(PDO::FETCH_ASSOC);
+$branchLabels = []; $branchCounts = [];
+foreach ($branchData as $b) { 
+    $branchLabels[] = $b['branch_name']; 
+    $branchCounts[] = $b['count']; 
+}
+
+// --- 4. THREAT CATEGORIZATION ---
 $attackStats = [
     'VPN PEER' => 0, 
     'SNMP LOGIN' => 0, 
@@ -74,7 +92,7 @@ foreach ($threats as $t) {
     } elseif (strpos($mod, 'NETDEFEND') !== false || strpos($evt, 'FLOOD') !== false) {
         $attackStats['PORT SCAN / FLOOD'] += $count;
     } elseif ($mod === 'ARP' || strpos($evt, 'DUPADDR') !== false || strpos($evt, 'CONFLICT') !== false) {
-        $attackStats['ARP CONFLICT'] += $count; // Accurately catches Duplicate IP & ARP Overwrites
+        $attackStats['ARP CONFLICT'] += $count; 
     } elseif ($severity <= 4) {
         $attackStats['OTHER ANOMALIES'] += $count;
     }
@@ -108,7 +126,7 @@ $branches = $pdo->query("SELECT * FROM branches ORDER BY name ASC")->fetchAll(PD
         <div class="absolute top-[-10%] left-[-10%] w-96 h-96 bg-blue-600 rounded-full mix-blend-multiply filter blur-[128px] opacity-40 pointer-events-none"></div>
         <div class="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-purple-600 rounded-full mix-blend-multiply filter blur-[128px] opacity-40 pointer-events-none"></div>
 
-        <div class="relative z-10">
+        <div class="relative z-10 max-w-7xl mx-auto">
             <div class="flex justify-between items-center mb-8 flex-wrap gap-4 anim-card animate-fade-in-up">
                 <div class="flex items-center gap-4">
                     <button onclick="toggleSidebar()" class="md:hidden p-2 bg-blue-600/50 hover:bg-blue-600 text-white rounded-lg backdrop-blur-md transition">☰</button>
@@ -134,40 +152,73 @@ $branches = $pdo->query("SELECT * FROM branches ORDER BY name ASC")->fetchAll(PD
                 </form>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                <div class="glass p-6 rounded-xl anim-card animate-fade-in-up shadow-xl" style="animation-delay: 0.2s;">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                <div class="glass p-6 rounded-xl anim-card animate-fade-in-up shadow-xl flex flex-col h-full" style="animation-delay: 0.2s;">
                     <h2 class="text-lg font-bold text-white mb-4">Threat Intelligence Distribution</h2>
-                    <div class="relative h-64">
+                    <div class="relative h-64 mb-6">
                         <?php if (array_sum($threatCounts) > 0): ?>
                             <canvas id="threatChart"></canvas>
                         <?php else: ?>
                             <div class="flex h-full items-center justify-center text-slate-500 font-medium">No threat data found for current filters.</div>
                         <?php endif; ?>
                     </div>
+                    <div class="mt-auto pt-4 border-t border-white/10 text-xs text-slate-400 leading-relaxed">
+                        <strong class="text-slate-200">Guide:</strong> 
+                        <span class="text-orange-400 font-semibold">VPN PEER</span> (External brute-force on gateways) • 
+                        <span class="text-yellow-400 font-semibold">SNMP LOGIN</span> (Network polling/probes) • 
+                        <span class="text-purple-400 font-semibold">UTILIZATION</span> (CPU/Memory spikes indicating DDoS or stress) • 
+                        <span class="text-red-400 font-semibold">PORT SCAN</span> (External firewall blocks) • 
+                        <span class="text-emerald-400 font-semibold">ARP CONFLICT</span> (Internal IP duplications or ARP spoofing).
+                    </div>
                 </div>
                 
-                <div class="glass p-6 rounded-xl anim-card animate-fade-in-up shadow-xl" style="animation-delay: 0.3s;">
+                <div class="glass p-6 rounded-xl anim-card animate-fade-in-up shadow-xl flex flex-col h-full" style="animation-delay: 0.3s;">
                     <h2 class="text-lg font-bold text-white mb-4">Log Severity Levels (0 = Highest)</h2>
-                    <div class="relative h-64">
+                    <div class="relative h-64 mb-6">
                         <?php if (array_sum($sevCounts) > 0): ?>
                             <canvas id="severityChart"></canvas>
                         <?php else: ?>
                             <div class="flex h-full items-center justify-center text-slate-500 font-medium">No severity data found for current filters.</div>
                         <?php endif; ?>
                     </div>
+                    <div class="mt-auto pt-4 border-t border-white/10 text-xs text-slate-400 leading-relaxed">
+                        <strong class="text-slate-200">Guide:</strong> 
+                        <span class="text-red-400 font-semibold">Levels 0 to 4 (Red)</span> represent Critical Errors, Warnings, and active Firewall Defense interventions. 
+                        <span class="text-emerald-400 font-semibold">Levels 5 to 7 (Green)</span> represent Notifications, Informational messages, and Debugging network traffic.
+                    </div>
                 </div>
             </div>
 
-            <div class="glass p-6 rounded-xl mb-10 anim-card animate-fade-in-up shadow-xl" style="animation-delay: 0.4s;">
-                <h2 class="text-lg font-bold text-white mb-4">Top 10 Most Active Modules</h2>
-                <div class="relative h-80">
-                    <?php if (array_sum($modCounts) > 0): ?>
-                        <canvas id="moduleChart"></canvas>
-                    <?php else: ?>
-                        <div class="flex h-full items-center justify-center text-slate-500 font-medium">No module data found for current filters.</div>
-                    <?php endif; ?>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
+                <div class="glass p-6 rounded-xl anim-card animate-fade-in-up shadow-xl flex flex-col h-full" style="animation-delay: 0.4s;">
+                    <h2 class="text-lg font-bold text-white mb-4">Top 10 Most Active Network Modules</h2>
+                    <div class="relative h-72 mb-6">
+                        <?php if (array_sum($modCounts) > 0): ?>
+                            <canvas id="moduleChart"></canvas>
+                        <?php else: ?>
+                            <div class="flex h-full items-center justify-center text-slate-500 font-medium">No module data found for current filters.</div>
+                        <?php endif; ?>
+                    </div>
+                    <div class="mt-auto pt-4 border-t border-white/10 text-xs text-slate-400 leading-relaxed">
+                        <strong class="text-slate-200">Guide:</strong> This chart displays the raw volume of logs generated by specific Ruijie firewall and switch processes. It helps identify the most "chatty" or stressed internal network services.
+                    </div>
+                </div>
+
+                <div class="glass p-6 rounded-xl anim-card animate-fade-in-up shadow-xl flex flex-col h-full" style="animation-delay: 0.5s;">
+                    <h2 class="text-lg font-bold text-white mb-4">Branch Activity Comparison</h2>
+                    <div class="relative h-72 mb-6">
+                        <?php if (array_sum($branchCounts) > 0): ?>
+                            <canvas id="branchChart"></canvas>
+                        <?php else: ?>
+                            <div class="flex h-full items-center justify-center text-slate-500 font-medium">No branch data found for current filters.</div>
+                        <?php endif; ?>
+                    </div>
+                    <div class="mt-auto pt-4 border-t border-white/10 text-xs text-slate-400 leading-relaxed">
+                        <strong class="text-slate-200">Guide:</strong> This chart compares the total volume of network logs generated by each branch location. Use this to instantly identify if a specific branch is experiencing abnormal network activity or being targeted by an attack.
+                    </div>
                 </div>
             </div>
+            
         </div>
     </main>
 
@@ -182,7 +233,7 @@ $branches = $pdo->query("SELECT * FROM branches ORDER BY name ASC")->fetchAll(PD
             delay: (ctx) => (ctx.type === 'data' && !ctx.chart._delayInit) ? ctx.dataIndex * 100 + ctx.datasetIndex * 100 : 0 
         };
 
-        // 1. Threat Doughnut Chart (6 colors configured for the exact UI matching)
+        // 1. Threat Doughnut Chart
         <?php if (array_sum($threatCounts) > 0): ?>
         new Chart(document.getElementById('threatChart'), { 
             type: 'doughnut', 
@@ -190,7 +241,7 @@ $branches = $pdo->query("SELECT * FROM branches ORDER BY name ASC")->fetchAll(PD
                 labels: <?= json_encode($threatLabels) ?>, 
                 datasets: [{ 
                     data: <?= json_encode($threatCounts) ?>, 
-                    backgroundColor: ['#fb923c', '#facc15', '#c084fc', '#f87171', '#10b981', '#94a3b8'], // Orange, Yellow, Purple, Red, Emerald, Slate
+                    backgroundColor: ['#fb923c', '#facc15', '#c084fc', '#f87171', '#10b981', '#94a3b8'], 
                     borderWidth: 2, 
                     borderColor: '#0f172a',
                     hoverOffset: 10
@@ -243,6 +294,34 @@ $branches = $pdo->query("SELECT * FROM branches ORDER BY name ASC")->fetchAll(PD
                     data: <?= json_encode($modCounts) ?>, 
                     backgroundColor: 'rgba(59, 130, 246, 0.8)', 
                     hoverBackgroundColor: 'rgba(96, 165, 250, 1)', 
+                    borderRadius: 6,
+                    borderSkipped: false
+                }] 
+            }, 
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false, 
+                plugins: { legend: { display: false } }, 
+                scales: { 
+                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, beginAtZero: true }, 
+                    x: { grid: { display: false } } 
+                }, 
+                animation: seqAnim 
+            } 
+        });
+        <?php endif; ?>
+
+        // 4. Branch Comparison Bar Chart
+        <?php if (array_sum($branchCounts) > 0): ?>
+        new Chart(document.getElementById('branchChart'), { 
+            type: 'bar', 
+            data: { 
+                labels: <?= json_encode($branchLabels) ?>, 
+                datasets: [{ 
+                    label: 'Total Network Events', 
+                    data: <?= json_encode($branchCounts) ?>, 
+                    backgroundColor: 'rgba(139, 92, 246, 0.8)', // Violet for branch contrast
+                    hoverBackgroundColor: 'rgba(167, 139, 250, 1)', 
                     borderRadius: 6,
                     borderSkipped: false
                 }] 
